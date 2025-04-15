@@ -1,7 +1,10 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for
+from flask_socketio import SocketIO, join_room, emit
 import copy
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your_secret_key'
+socketio = SocketIO(app, cors_allowed_origins="*")  # 注意：生產環境請依需求設定 CORS
 
 # 遊戲參數設定
 BOARD_SIZE = 8
@@ -47,18 +50,39 @@ def make_move(board, row, col, color):
         board[r][c] = color
     return True
 
-# 全域遊戲狀態
+# 全域遊戲狀態，單一遊戲房間（room "game"）共用同一盤棋與回合
 GAME_STATE = {
     "board": init_board(),
     "current": BLACK  # 黑先手
 }
 
+# 儲存已登入玩家
+PLAYERS = {}
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # 如果玩家未登入，轉到登入頁面
+    if 'username' not in session:
+        return redirect(url_for("login"))
+    return render_template("game.html")
 
-@app.route("/init", methods=["GET"])
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        username = request.form.get("username")
+        if username:
+            session['username'] = username
+            return redirect(url_for("index"))
+    return render_template("login.html")
+
+@app.route("/logout")
+def logout():
+    session.pop("username", None)
+    return redirect(url_for("login"))
+
+@app.route("/init_game", methods=["GET"])
 def init_game():
+    # 重置遊戲狀態，僅限房間創建者或管理者使用
     GAME_STATE["board"] = init_board()
     GAME_STATE["current"] = BLACK
     return jsonify({
@@ -66,27 +90,12 @@ def init_game():
         "current": GAME_STATE["current"]
     })
 
-@app.route("/move", methods=["POST"])
-def move():
-    data = request.get_json()
-    row = data.get("row")
-    col = data.get("col")
-    color = GAME_STATE["current"]
-    board = GAME_STATE["board"]
-    if not is_on_board(row, col):
-        return jsonify({"valid": False})
-    flips = get_flippable(board, row, col, color)
-    if not flips:
-        return jsonify({"valid": False})
-    make_move(board, row, col, color)
-    # 切換回合
-    GAME_STATE["current"] = WHITE if color == BLACK else BLACK
-    return jsonify({
-        "valid": True,
-        "board": board,
-        "current": GAME_STATE["current"]
-    })
-
-if __name__ == "__main__":
-    # 刪除 ngrok 相關程式碼，直接啟動 Flask 服務器
-    app.run(debug=True)
+# SocketIO 連線事件：加入房間 "game" 後將玩家資訊記錄
+@socketio.on('join')
+def on_join(data):
+    username = session.get("username")
+    if not username:
+        return
+    room = "game"
+    join_room(room)
+    PLAY
