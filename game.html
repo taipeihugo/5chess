@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>網路黑白棋</title>
+  <style>
+    body { text-align: center; font-family: Arial, sans-serif; }
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, 50px);
+      gap: 2px;
+      width: 416px;
+      margin: 20px auto;
+      background: #333;
+    }
+    .cell {
+      width: 50px; height: 50px;
+      background: #4CAF50;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 24px; color: #fff;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>網路黑白棋遊戲</h1>
+  <p>目前回合：<span id="current"></span></p>
+  <div id="board"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"
+    integrity="sha512-R68W7hm16AXCgLMzyWTOO+o3+ScVDLwOb1vP62cNn8Wp+fw0c6INdmdmYVzTgWJkIM5V8WybtICyDaGTEbQ0Jg=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script>
+    const BOARD_SIZE = 8;
+    let board = [];
+    let current = "";
+    const socket = io();
+
+    // 畫棋盤
+    function drawBoard() {
+      const boardDiv = document.getElementById('board');
+      boardDiv.innerHTML = "";
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          let cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.dataset.row = r;
+          cell.dataset.col = c;
+          if (board[r][c] === "B") {
+            cell.textContent = "●";
+          } else if (board[r][c] === "W") {
+            cell.textContent = "○";
+          }
+          cell.addEventListener('click', () => {
+            // 點擊棋盤後透過 Socket 發送下棋請求
+            socket.emit('move', { row: r, col: c });
+          });
+          boardDiv.appendChild(cell);
+        }
+      }
+      document.getElementById("current").textContent = current === "B" ? "黑(●)" : "白(○)";
+    }
+
+    // 連線後加入房間
+    socket.on('connect', () => {
+      socket.emit('join', {});
+    });
+
+    // 接收來自伺服器的狀態訊息（例如有人加入）
+    socket.on('status', (data) => {
+      console.log(data.msg);
+    });
+
+    // 接收遊戲狀態更新（棋盤、回合等）
+    socket.on('update', (data) => {
+      board = data.board;
+      current = data.current;
+      drawBoard();
+    });
+
+    // 接收無效下棋訊息
+    socket.on('invalid', (data) => {
+      alert(data.msg);
+    });
+  </script>
+  <p><a href="/logout">登出</a></p>
+</body>
+</html>
