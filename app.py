@@ -3,7 +3,7 @@ from flask_socketio import SocketIO, join_room, emit
 import copy
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your_secret_key'
+app.config['SECRET_KEY'] = '123'
 socketio = SocketIO(app, cors_allowed_origins="*")  # 注意：生產環境請依需求設定 CORS
 
 # 遊戲參數設定
