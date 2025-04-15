@@ -1,87 +1,104 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html>
 <head>
   <meta charset="UTF-8">
-  <title>網路黑白棋</title>
+  <title>線上圈叉遊戲</title>
   <style>
-    body { text-align: center; font-family: Arial, sans-serif; }
-    #board {
-      display: grid;
-      grid-template-columns: repeat(8, 50px);
-      gap: 2px;
-      width: 416px;
-      margin: 20px auto;
-      background: #333;
-    }
-    .cell {
-      width: 50px; height: 50px;
-      background: #4CAF50;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      font-size: 24px; color: #fff;
-      cursor: pointer;
-    }
+      body { font-family: Arial, sans-serif; }
+      #game {
+          width: 300px;
+          height: 300px;
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 5px;
+          margin: 20px auto;
+      }
+      .cell {
+          background: #f0f0f0;
+          font-size: 2em;
+          text-align: center;
+          line-height: 90px;
+          height: 90px;
+          cursor: pointer;
+      }
   </style>
 </head>
 <body>
-  <h1>網路黑白棋遊戲</h1>
-  <button id="init-btn">開始新局</button>
-  <p>目前回合：<span id="current"></span></p>
-  <div id="board"></div>
-  
+  <h1 align="center">線上圈叉遊戲</h1>
+  <div style="text-align: center;">
+    <input type="text" id="room" placeholder="請輸入房間名稱">
+    <button id="join">加入房間</button>
+  </div>
+  <div id="game"></div>
+  <p id="message" style="text-align: center;"></p>
+  <!-- 引入 Socket.IO 的客戶端庫 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"></script>
   <script>
-    const BOARD_SIZE = 8;
-    let board = [];
-    let current;
-    
-    function drawBoard() {
-      const boardDiv = document.getElementById('board');
-      boardDiv.innerHTML = "";
-      for (let r = 0; r < BOARD_SIZE; r++) {
-        for (let c = 0; c < BOARD_SIZE; c++) {
-          let cell = document.createElement('div');
-          cell.className = 'cell';
-          cell.dataset.row = r;
-          cell.dataset.col = c;
-          if (board[r][c] === "B") {
-            cell.textContent = "●";
-          } else if (board[r][c] === "W") {
-            cell.textContent = "○";
-          }
-          cell.addEventListener('click', () => {
-            fetch("/move", {
-              method: "POST",
-              headers: {"Content-Type": "application/json"},
-              body: JSON.stringify({ row: r, col: c })
-            })
-            .then(res => res.json())
-            .then(data => {
-              if (!data.valid) {
-                alert("此處無法下子！");
-              } else {
-                board = data.board;
-                current = data.current;
-                document.getElementById("current").textContent = current === "B" ? "黑(●)" : "白(○)";
-                drawBoard();
-              }
-            });
+      const socket = io();
+      let playerSymbol = '';
+      let myTurn = false;
+      let currentRoom = '';
+      let board = Array(9).fill('');
+
+      // 渲染棋盤
+      function renderBoard() {
+          const gameDiv = document.getElementById('game');
+          gameDiv.innerHTML = '';
+          board.forEach((cell, index) => {
+              const cellDiv = document.createElement('div');
+              cellDiv.className = 'cell';
+              cellDiv.dataset.index = index;
+              cellDiv.innerText = cell;
+              cellDiv.addEventListener('click', () => makeMove(index));
+              gameDiv.appendChild(cellDiv);
           });
-          boardDiv.appendChild(cell);
-        }
       }
-    }
-    
-    document.getElementById("init-btn").addEventListener("click", () => {
-      fetch("/init")
-      .then(res => res.json())
-      .then(data => {
-        board = data.board;
-        current = data.current;
-        document.getElementById("current").textContent = current === "B" ? "黑(●)" : "白(○)";
-        drawBoard();
+
+      document.getElementById('join').addEventListener('click', () => {
+          currentRoom = document.getElementById('room').value.trim();
+          if (currentRoom !== '') {
+              socket.emit('create_or_join', { room: currentRoom });
+          }
       });
-    });
+
+      // 接收狀態訊息
+      socket.on('status', (data) => {
+          document.getElementById('message').innerText = data.msg;
+      });
+
+      // 遊戲開始時，後端會通知誰先手
+      socket.on('start_game', (data) => {
+          const firstPlayer = data.first;
+          // 假設先手玩家使用 'X'
+          playerSymbol = (socket.id === firstPlayer) ? 'X' : 'O';
+          myTurn = (playerSymbol === 'X');
+          document.getElementById('message').innerText = myTurn ? "輪到你了！" : "等待對手...";
+          renderBoard();
+      });
+
+      // 玩家下棋
+      function makeMove(index) {
+          if (!myTurn || board[index] !== '') return;
+          board[index] = playerSymbol;
+          renderBoard();
+          // 通知後端你的下棋動作
+          socket.emit('move', { room: currentRoom, cell: index });
+          myTurn = false;
+          document.getElementById('message').innerText = "等待對手...";
+      }
+
+      // 接收對方下棋的動作
+      socket.on('move', (data) => {
+          const cellIndex = data.cell;
+          const player = data.player;
+          if (player !== socket.id) {
+              const oppositeSymbol = (playerSymbol === 'X') ? 'O' : 'X';
+              board[cellIndex] = oppositeSymbol;
+              renderBoard();
+              myTurn = true;
+              document.getElementById('message').innerText = "輪到你了！";
+          }
+      });
   </script>
 </body>
 </html>
