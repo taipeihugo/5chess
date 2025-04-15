@@ -1,3 +1,1 @@
-flask
-requests
-jsonify
+Flask==2.2.2
