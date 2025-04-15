@@ -1,101 +1,41 @@
-from flask import Flask, request, jsonify, render_template, session, redirect, url_for
+from flask import Flask, render_template, request
 from flask_socketio import SocketIO, join_room, emit
-import copy
+import random
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = '123'
-socketio = SocketIO(app, cors_allowed_origins="*")  # 注意：生產環境請依需求設定 CORS
+app.config['SECRET_KEY'] = 'secret!'
+socketio = SocketIO(app)
 
-# 遊戲參數設定
-BOARD_SIZE = 8
-EMPTY = ""
-BLACK = "B"
-WHITE = "W"
+# 儲存房間資料（簡單示範，正式版請考慮狀態同步與錯誤處理）
+rooms = {}
 
-def init_board():
-    board = [[EMPTY for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
-    # 初始化中間四格
-    board[3][3] = WHITE
-    board[3][4] = BLACK
-    board[4][3] = BLACK
-    board[4][4] = WHITE
-    return board
-
-def is_on_board(row, col):
-    return 0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE
-
-def get_flippable(board, row, col, color):
-    if board[row][col] != EMPTY or not is_on_board(row, col):
-        return []
-    opponent = WHITE if color == BLACK else BLACK
-    directions = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
-    to_flip = []
-    for dr, dc in directions:
-        r, c = row + dr, col + dc
-        tiles = []
-        while is_on_board(r, c) and board[r][c] == opponent:
-            tiles.append([r, c])
-            r += dr
-            c += dc
-        if tiles and is_on_board(r, c) and board[r][c] == color:
-            to_flip.extend(tiles)
-    return to_flip
-
-def make_move(board, row, col, color):
-    flips = get_flippable(board, row, col, color)
-    if not flips:
-        return False
-    board[row][col] = color
-    for r, c in flips:
-        board[r][c] = color
-    return True
-
-# 全域遊戲狀態，單一遊戲房間（room "game"）共用同一盤棋與回合
-GAME_STATE = {
-    "board": init_board(),
-    "current": BLACK  # 黑先手
-}
-
-# 儲存已登入玩家
-PLAYERS = {}
-
-@app.route("/")
+@app.route('/')
 def index():
-    # 如果玩家未登入，轉到登入頁面
-    if 'username' not in session:
-        return redirect(url_for("login"))
-    return render_template("game.html")
+    return render_template('index.html')
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        username = request.form.get("username")
-        if username:
-            session['username'] = username
-            return redirect(url_for("index"))
-    return render_template("login.html")
+@socketio.on('create_or_join')
+def on_create_or_join(data):
+    room = data.get('room')
+    if room not in rooms:
+        rooms[room] = {'players': []}
+    if len(rooms[room]['players']) < 2:
+        join_room(room)
+        rooms[room]['players'].append(request.sid)
+        emit('status', {'msg': f'玩家已加入房間 {room}.'}, room=room)
+        if len(rooms[room]['players']) == 2:
+            # 當房間有兩位玩家時，隨機決定先手玩家
+            first_player = random.choice(rooms[room]['players'])
+            emit('start_game', {'first': first_player}, room=room)
+    else:
+        emit('status', {'msg': '房間已滿。'})
 
-@app.route("/logout")
-def logout():
-    session.pop("username", None)
-    return redirect(url_for("login"))
+@socketio.on('move')
+def on_move(data):
+    room = data.get('room')
+    cell = data.get('cell')
+    # 將移動廣播到房間內所有用戶
+    emit('move', {'cell': cell, 'player': request.sid}, room=room)
 
-@app.route("/init_game", methods=["GET"])
-def init_game():
-    # 重置遊戲狀態，僅限房間創建者或管理者使用
-    GAME_STATE["board"] = init_board()
-    GAME_STATE["current"] = BLACK
-    return jsonify({
-        "board": GAME_STATE["board"],
-        "current": GAME_STATE["current"]
-    })
-
-# SocketIO 連線事件：加入房間 "game" 後將玩家資訊記錄
-@socketio.on('join')
-def on_join(data):
-    username = session.get("username")
-    if not username:
-        return
-    room = "game"
-    join_room(room)
-    PLAY
+if __name__ == '__main__':
+    # 當部署到 Render 時，可能需設定埠號與 debug 模式
+    socketio.run(app, host='0.0.0.0', port=5000)
