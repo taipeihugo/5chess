@@ -2,125 +2,132 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>即時聊天程式</title>
+    <title>黑白棋遊戲</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-        }
-        #chat {
-            width: 400px;
+        body { font-family: Arial, sans-serif; text-align: center; }
+        #gameBoard {
+            display: grid;
+            grid-template-columns: repeat(8, 50px);
+            grid-template-rows: repeat(8, 50px);
+            gap: 2px;
+            width: 416px;
             margin: 20px auto;
-            border: 1px solid #ccc;
-            padding: 10px;
-            height: 300px;
-            overflow-y: scroll;
         }
-        #userList {
-            width: 400px;
-            margin: 0 auto 20px;
-            border: 1px solid #ccc;
-            padding: 10px;
+        .cell {
+            width: 50px; height: 50px;
+            background-color: #00A000;
+            border: 1px solid #006600;
+            cursor: pointer;
+            position: relative;
         }
-        #messageInput {
-            width: 300px;
+        .piece {
+            width: 40px; height: 40px;
+            border-radius: 50%;
+            position: absolute;
+            top: 5px; left: 5px;
         }
+        .black { background-color: black; }
+        .white { background-color: white; }
+        #messages { width: 416px; margin: 10px auto; }
     </style>
 </head>
 <body>
-    <h1>即時聊天程式</h1>
+    <h1>黑白棋遊戲 (僅限兩人)</h1>
     <div>
         <label>使用者名稱: <input type="text" id="username" placeholder="請輸入名稱"></label>
-        <button id="joinBtn">加入聊天室</button>
+        <button id="joinBtn">加入遊戲</button>
     </div>
-    <!-- 顯示聊天室使用者清單 -->
-    <div id="userList">目前聊天室人員：尚未加入</div>
-    <!-- 聊天訊息區塊 -->
-    <div id="chat"></div>
-    <div>
-        <input type="text" id="messageInput" placeholder="輸入訊息">
-        <button id="sendBtn">送出訊息</button>
-    </div>
+    <div id="messages"></div>
+    <div id="gameBoard"></div>
+    <div id="turnInfo"></div>
     
     <!-- 引入 Socket.IO 客戶端庫 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"></script>
     <script>
         const socket = io();
-        const chatDiv = document.getElementById("chat");
-        const userListDiv = document.getElementById("userList");
         const joinBtn = document.getElementById("joinBtn");
-        const sendBtn = document.getElementById("sendBtn");
         const usernameInput = document.getElementById("username");
-        const messageInput = document.getElementById("messageInput");
+        const messagesDiv = document.getElementById("messages");
+        const boardDiv = document.getElementById("gameBoard");
+        const turnInfoDiv = document.getElementById("turnInfo");
 
-        let joined = false;
+        let myColor = "";
+        let gameStarted = false;
+        let board = [];
 
-        // 更新聊天室的人員清單
-        function updateUserList(users) {
-            if (users.length === 0) {
-                userListDiv.innerText = "目前聊天室人員：尚未加入";
-            } else {
-                userListDiv.innerText = "目前聊天室人員：" + users.join(", ");
+        function logMessage(msg) {
+            const p = document.createElement("p");
+            p.innerText = msg;
+            messagesDiv.appendChild(p);
+        }
+
+        // 渲染棋盤：根據伺服器傳來的 board (二維陣列)
+        function renderBoard() {
+            boardDiv.innerHTML = "";
+            for (let i = 0; i < 8; i++) {
+                for (let j = 0; j < 8; j++) {
+                    const cell = document.createElement("div");
+                    cell.className = "cell";
+                    cell.dataset.row = i;
+                    cell.dataset.col = j;
+                    // 若該位置有棋子，就畫出來
+                    if (board[i][j] === "B" || board[i][j] === "W") {
+                        const piece = document.createElement("div");
+                        piece.className = "piece " + (board[i][j] === "B" ? "black" : "white");
+                        cell.appendChild(piece);
+                    }
+                    // 當遊戲進行中且輪到自己下棋，點擊棋盤發送下棋請求
+                    cell.addEventListener("click", () => {
+                        if (!gameStarted) return;
+                        // 此處只提供下棋請求，伺服器將進行合法性檢查
+                        socket.emit("make_move", {
+                            row: cell.dataset.row,
+                            col: cell.dataset.col
+                        });
+                    });
+                    boardDiv.appendChild(cell);
+                }
             }
         }
 
-        // 加入聊天室
         joinBtn.addEventListener("click", () => {
             const username = usernameInput.value.trim();
-            if(username) {
-                socket.emit("join", { username: username });
-                joined = true;
-            } else {
+            if (!username) {
                 alert("請輸入使用者名稱");
-            }
-        });
-
-        // 送出訊息
-        sendBtn.addEventListener("click", () => {
-            if(!joined) {
-                alert("請先加入聊天室！");
                 return;
             }
-            const username = usernameInput.value.trim();
-            const msg = messageInput.value.trim();
-            if(msg) {
-                socket.emit("message", { username: username, msg: msg });
-                messageInput.value = "";
-            }
+            socket.emit("join", { username: username });
         });
 
-        // 顯示狀態訊息
+        // 接收狀態訊息
         socket.on("status", data => {
-            const p = document.createElement("p");
-            p.innerText = data.msg;
-            p.style.color = "blue";
-            chatDiv.appendChild(p);
-            chatDiv.scrollTop = chatDiv.scrollHeight;
-            if(data.users) {
-                updateUserList(data.users);
-            }
+            logMessage(data.msg);
         });
 
-        // 顯示聊天訊息
-        socket.on("message", data => {
-            const p = document.createElement("p");
-            p.innerText = data.msg;
-            chatDiv.appendChild(p);
-            chatDiv.scrollTop = chatDiv.scrollHeight;
+        // 當玩家人數滿兩人後，伺服器發出 start_game 事件
+        socket.on("start_game", data => {
+            gameStarted = true;
+            board = data.board;
+            turnInfoDiv.innerText = "目前輪到 " + data.turn + " 下棋";
+            // 設定自己顏色（依據進入先後順序，訊息中玩家順序可供參考，此範例僅顯示提示）
+            // 若你的名稱與訊息中第一位玩家相同則你為黑，否則為白 (此部分可根據實際情形自行調整)
+            // 此範例僅以當前回合提示即可
+            renderBoard();
         });
 
-        // 更新聊天室使用者清單
-        socket.on("user_list", data => {
-            if(data.users) {
-                updateUserList(data.users);
-            }
+        // 接收每次下棋後的棋盤更新
+        socket.on("board_update", data => {
+            board = data.board;
+            turnInfoDiv.innerText = "目前輪到 " + data.turn + " 下棋";
+            renderBoard();
         });
 
-        socket.on("disconnect", () => {
-            const p = document.createElement("p");
-            p.innerText = "連線中斷，請稍後再試。";
-            p.style.color = "red";
-            chatDiv.appendChild(p);
+        socket.on("error", data => {
+            logMessage("錯誤：" + data.msg);
+        });
+
+        socket.on("full", data => {
+            alert(data.msg);
         });
     </script>
 </body>
