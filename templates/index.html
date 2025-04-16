@@ -4,101 +4,121 @@
   <meta charset="UTF-8">
   <title>線上圈叉遊戲</title>
   <style>
-      body { font-family: Arial, sans-serif; }
-      #game {
-          width: 300px;
-          height: 300px;
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 5px;
-          margin: 20px auto;
-      }
-      .cell {
-          background: #f0f0f0;
-          font-size: 2em;
-          text-align: center;
-          line-height: 90px;
-          height: 90px;
-          cursor: pointer;
-      }
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+    #game {
+      margin: 20px auto;
+      display: grid;
+      grid-template-columns: repeat(3, 100px);
+      gap: 5px;
+      width: 315px;
+    }
+    .cell {
+      width: 100px;
+      height: 100px;
+      background-color: #f0f0f0;
+      font-size: 2em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    #status {
+      margin: 20px;
+      font-size: 1.2em;
+    }
   </style>
 </head>
 <body>
-  <h1 align="center">線上圈叉遊戲</h1>
-  <div style="text-align: center;">
-    <input type="text" id="room" placeholder="請輸入房間名稱">
-    <button id="join">加入房間</button>
+  <h1>線上圈叉遊戲</h1>
+  <div>
+    <input type="text" id="room" placeholder="輸入房間名稱">
+    <button id="joinBtn">加入房間</button>
   </div>
+  <div id="status">請輸入房間名稱並加入遊戲</div>
   <div id="game"></div>
-  <p id="message" style="text-align: center;"></p>
-  <!-- 引入 Socket.IO 的客戶端庫 -->
+  
+  <!-- 引入 Socket.IO 客戶端庫 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"></script>
   <script>
-      const socket = io();
-      let playerSymbol = '';
-      let myTurn = false;
-      let currentRoom = '';
-      let board = Array(9).fill('');
-
-      // 渲染棋盤
-      function renderBoard() {
-          const gameDiv = document.getElementById('game');
-          gameDiv.innerHTML = '';
-          board.forEach((cell, index) => {
-              const cellDiv = document.createElement('div');
-              cellDiv.className = 'cell';
-              cellDiv.dataset.index = index;
-              cellDiv.innerText = cell;
-              cellDiv.addEventListener('click', () => makeMove(index));
-              gameDiv.appendChild(cellDiv);
-          });
-      }
-
-      document.getElementById('join').addEventListener('click', () => {
-          currentRoom = document.getElementById('room').value.trim();
-          if (currentRoom !== '') {
-              socket.emit('create_or_join', { room: currentRoom });
+    const socket = io();
+    const statusDiv = document.getElementById('status');
+    const gameDiv = document.getElementById('game');
+    let roomName = "";
+    let board = Array(9).fill("");
+    let playerSymbol = "";
+    let myTurn = false;
+    
+    // 繪製棋盤
+    function renderBoard() {
+      gameDiv.innerHTML = "";
+      board.forEach((cell, index) => {
+        const cellDiv = document.createElement('div');
+        cellDiv.className = 'cell';
+        cellDiv.dataset.index = index;
+        cellDiv.innerText = cell;
+        cellDiv.addEventListener('click', () => {
+          if(myTurn && board[index] === "") {
+            board[index] = playerSymbol;
+            renderBoard();
+            socket.emit('make_move', { room: roomName, index: index, symbol: playerSymbol });
+            myTurn = false;
+            statusDiv.innerText = "等待對手下棋...";
           }
+        });
+        gameDiv.appendChild(cellDiv);
       });
-
-      // 接收狀態訊息
-      socket.on('status', (data) => {
-          document.getElementById('message').innerText = data.msg;
-      });
-
-      // 遊戲開始時，後端會通知誰先手
-      socket.on('start_game', (data) => {
-          const firstPlayer = data.first;
-          // 假設先手玩家使用 'X'
-          playerSymbol = (socket.id === firstPlayer) ? 'X' : 'O';
-          myTurn = (playerSymbol === 'X');
-          document.getElementById('message').innerText = myTurn ? "輪到你了！" : "等待對手...";
-          renderBoard();
-      });
-
-      // 玩家下棋
-      function makeMove(index) {
-          if (!myTurn || board[index] !== '') return;
-          board[index] = playerSymbol;
-          renderBoard();
-          // 通知後端你的下棋動作
-          socket.emit('move', { room: currentRoom, cell: index });
-          myTurn = false;
-          document.getElementById('message').innerText = "等待對手...";
+    }
+    
+    // 加入房間
+    document.getElementById('joinBtn').addEventListener('click', () => {
+      roomName = document.getElementById('room').value.trim();
+      if(roomName) {
+        socket.emit('create_or_join', { room: roomName });
       }
-
-      // 接收對方下棋的動作
-      socket.on('move', (data) => {
-          const cellIndex = data.cell;
-          const player = data.player;
-          if (player !== socket.id) {
-              const oppositeSymbol = (playerSymbol === 'X') ? 'O' : 'X';
-              board[cellIndex] = oppositeSymbol;
-              renderBoard();
-              myTurn = true;
-              document.getElementById('message').innerText = "輪到你了！";
-          }
-      });
+    });
+    
+    // 接收後端狀態訊息
+    socket.on('status', data => {
+      statusDiv.innerText = data.msg;
+    });
+    
+    // 遊戲啟動：依照 server 指示決定先後手
+    socket.on('start_game', data => {
+      // 若自己的 socket.id 和 server 回傳的 first 相同，則為先手(X)
+      if(socket.id === data.first) {
+        playerSymbol = "X";
+        myTurn = true;
+        statusDiv.innerText = "遊戲開始！輪到你下棋 (X)";
+      } else {
+        playerSymbol = "O";
+        myTurn = false;
+        statusDiv.innerText = "遊戲開始！等待對手下棋 (O)";
+      }
+      board = Array(9).fill("");
+      renderBoard();
+    });
+    
+    // 處理下棋事件：收到對方下棋後更新棋盤，並切換回合
+    socket.on('move_made', data => {
+      board[data.index] = data.symbol;
+      renderBoard();
+      // 如果對方剛下了棋，輪到自己行動
+      if(data.symbol !== playerSymbol) {
+        myTurn = true;
+        statusDiv.innerText = "輪到你下棋！";
+      } else {
+        myTurn = false;
+        statusDiv.innerText = "等待對手下棋...";
+      }
+    });
+    
+    // 當連線中斷時提示
+    socket.on('disconnect', () => {
+      statusDiv.innerText = "連線中斷，請稍後再試。";
+    });
   </script>
 </body>
 </html>
