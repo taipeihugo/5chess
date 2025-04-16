@@ -1,50 +1,96 @@
-from flask import Flask, render_template, request
-from flask_socketio import SocketIO, emit, join_room, leave_room
-import os
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>即時聊天程式</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        #chat {
+            width: 400px;
+            margin: 20px auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 300px;
+            overflow-y: scroll;
+        }
+        #messageInput {
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+    <h1>即時聊天程式</h1>
+    <div>
+        <label>使用者名稱: <input type="text" id="username" placeholder="請輸入名稱"></label>
+        <button id="joinBtn">加入聊天室</button>
+    </div>
+    <div id="chat"></div>
+    <div>
+        <input type="text" id="messageInput" placeholder="輸入訊息">
+        <button id="sendBtn">送出訊息</button>
+    </div>
+    
+    <!-- 引入 Socket.IO 客戶端庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+        const chatDiv = document.getElementById("chat");
+        const joinBtn = document.getElementById("joinBtn");
+        const sendBtn = document.getElementById("sendBtn");
+        const usernameInput = document.getElementById("username");
+        const messageInput = document.getElementById("messageInput");
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret!'
-# 允許跨來源請求
-socketio = SocketIO(app, cors_allowed_origins="*")
+        let joined = false;
 
-# 使用一個固定聊天室名稱，限制聊天室僅允許 2 位使用者
-chat_room = 'chat_room'
-users = []  # 儲存已加入聊天室的使用者 (以 socket.id 為識別)
+        // 加入聊天室
+        joinBtn.addEventListener("click", () => {
+            const username = usernameInput.value.trim();
+            if(username) {
+                socket.emit("join", { username: username });
+                joined = true;
+            } else {
+                alert("請輸入使用者名稱");
+            }
+        });
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+        // 送出訊息
+        sendBtn.addEventListener("click", () => {
+            if(!joined) {
+                alert("請先加入聊天室！");
+                return;
+            }
+            const username = usernameInput.value.trim();
+            const msg = messageInput.value.trim();
+            if(msg) {
+                socket.emit("message", { username: username, msg: msg });
+                messageInput.value = "";
+            }
+        });
 
-@socketio.on('join')
-def handle_join(data):
-    username = data.get("username", "Anonymous")
-    # 超過兩個使用者時，拒絕加入
-    if len(users) >= 2:
-        emit("full", {"msg": "聊天室已滿，請稍後再試。"})
-    else:
-        join_room(chat_room)
-        users.append(request.sid)
-        # 廣播狀態訊息給聊天室內所有使用者
-        emit("status", {"msg": f"{username} 已加入聊天。"}, room=chat_room)
-        print(f"User {username} (sid: {request.sid}) joined. Users: {users}")
+        // 顯示狀態訊息
+        socket.on("status", data => {
+            const p = document.createElement("p");
+            p.innerText = data.msg;
+            p.style.color = "blue";
+            chatDiv.appendChild(p);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        });
 
-@socketio.on('message')
-def handle_message(data):
-    username = data.get("username", "Anonymous")
-    msg = data.get("msg", "")
-    # 廣播訊息給聊天室內所有使用者
-    emit("message", {"msg": f"{username}: {msg}"}, room=chat_room)
+        // 顯示聊天訊息
+        socket.on("message", data => {
+            const p = document.createElement("p");
+            p.innerText = data.msg;
+            chatDiv.appendChild(p);
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+        });
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    # 移除離線使用者
-    if request.sid in users:
-        users.remove(request.sid)
-        # 廣播通知使用者離線
-        emit("status", {"msg": "一位使用者已離開聊天。"}, room=chat_room)
-        print(f"User (sid: {request.sid}) disconnected. Users: {users}")
-
-if __name__ == '__main__':
-    # 部署時可利用環境變數 PORT 指定埠號，Render 平台常會設定此環境變數
-    port = int(os.environ.get("PORT", 5000))
-    socketio.run(app, host="0.0.0.0", port=port)
+        // 當聊天室已滿時
+        socket.on("full", data => {
+            alert(data.msg);
+        });
+    </script>
+</body>
+</html>
