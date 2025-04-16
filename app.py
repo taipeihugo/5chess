@@ -1,65 +1,50 @@
-from flask import Flask, render_template, send_from_directory, request
-from flask_socketio import SocketIO, join_room, emit
-import random
+from flask import Flask, render_template, request
+from flask_socketio import SocketIO, emit, join_room, leave_room
+import os
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")  # 啟用跨來源請求
+app.config['SECRET_KEY'] = 'secret!'
+# 允許跨來源請求
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# 房間資料結構
-rooms = {}  # {room_name: {"players": [sid1, sid2]}}
+# 使用一個固定聊天室名稱，限制聊天室僅允許 2 位使用者
+chat_room = 'chat_room'
+users = []  # 儲存已加入聊天室的使用者 (以 socket.id 為識別)
 
 @app.route('/')
 def index():
-    return send_from_directory('.', 'index.html')
+    return render_template('index.html')
 
-@app.route('/<path:path>')
-def send_file(path):
-    return send_from_directory('.', path)
+@socketio.on('join')
+def handle_join(data):
+    username = data.get("username", "Anonymous")
+    # 超過兩個使用者時，拒絕加入
+    if len(users) >= 2:
+        emit("full", {"msg": "聊天室已滿，請稍後再試。"})
+    else:
+        join_room(chat_room)
+        users.append(request.sid)
+        # 廣播狀態訊息給聊天室內所有使用者
+        emit("status", {"msg": f"{username} 已加入聊天。"}, room=chat_room)
+        print(f"User {username} (sid: {request.sid}) joined. Users: {users}")
 
-@socketio.on('connect')
-def handle_connect():
-    print(f"Client connected: {request.sid}")
+@socketio.on('message')
+def handle_message(data):
+    username = data.get("username", "Anonymous")
+    msg = data.get("msg", "")
+    # 廣播訊息給聊天室內所有使用者
+    emit("message", {"msg": f"{username}: {msg}"}, room=chat_room)
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print(f"Client disconnected: {request.sid}")
-    for room, data in rooms.items():
-        if request.sid in data['players']:
-            data['players'].remove(request.sid)
-            emit('status', {'msg': '有玩家離開房間。'}, room=room)
-            # 如果房間內沒有玩家了就移除房間
-            if not data['players']:
-                del rooms[room]
-            break
-
-@socketio.on('create_or_join')
-def on_create_or_join(data):
-    room = data.get('room')
-    print(f"Client {request.sid} wants to join room: {room}")
-    if room not in rooms:
-        rooms[room] = {'players': []}
-    if len(rooms[room]['players']) < 2:
-        join_room(room)
-        rooms[room]['players'].append(request.sid)
-        print(f"Room {room} players: {rooms[room]['players']}")
-        emit('status', {'msg': f'玩家已加入房間 {room}。'}, room=room)
-        if len(rooms[room]['players']) == 2:
-            first_player = random.choice(rooms[room]['players'])
-            print(f"開始遊戲，first player: {first_player}")
-            emit('start_game', {'first': first_player}, room=room)
-    else:
-        emit('status', {'msg': '房間已滿。'})
-
-@socketio.on('make_move')
-def on_make_move(data):
-    room = data.get('room')
-    index = data.get('index')
-    symbol = data.get('symbol')
-    emit('move_made', {'index': index, 'symbol': symbol}, room=room)
+    # 移除離線使用者
+    if request.sid in users:
+        users.remove(request.sid)
+        # 廣播通知使用者離線
+        emit("status", {"msg": "一位使用者已離開聊天。"}, room=chat_room)
+        print(f"User (sid: {request.sid}) disconnected. Users: {users}")
 
 if __name__ == '__main__':
-    # 使用 eventlet 啟動以支援 WebSocket
-    import eventlet
-    import eventlet.wsgi
-    eventlet.monkey_patch()
-    socketio.run(app, host='0.0.0.0', port=5000)
+    # 部署時可利用環境變數 PORT 指定埠號，Render 平台常會設定此環境變數
+    port = int(os.environ.get("PORT", 5000))
+    socketio.run(app, host="0.0.0.0", port=port)
