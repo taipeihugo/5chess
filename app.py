@@ -114,7 +114,8 @@ def on_join(data):
     color = "B" if len(players) == 0 else "W"
     players[sid] = {"username": username, "color": color}
     # 廣播目前加入狀態
-    emit("status", {"msg": f"{username} ({color}) 加入遊戲。"}, room=ROOM)
+    human_color = "黑" if color == "B" else "白"
+    emit("status", {"msg": f"{username} ({human_color}) 加入遊戲。"}, room=ROOM)
     # 當兩位玩家都已加入後，啟動遊戲
     if len(players) == MAX_PLAYERS:
         game_started = True
